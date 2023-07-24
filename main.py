@@ -387,7 +387,7 @@ def test_sequential_bit_input_inference_and_power():
     memristor_model = DynamicMemristorStuck
     memristor_params = {'frequency': 1e8, 'temperature': 273 + 40}
     # ideal_w = torch.tensor([[50, 100],[75, 220],[30, 80]], dtype=torch.float64)*1e-6
-    ideal_w = torch.ones([48, 16])*65e-6
+    ideal_w = torch.ones([48, 16])*65e-6  # shape is [number_of_cols, number_of_rows]
 
     crossbar = LineResistanceCrossbar(memristor_model, memristor_params, ideal_w, crossbar_params)
     # randomize weights
