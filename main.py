@@ -379,6 +379,37 @@ def test_power():
         print("Word Line Power:", ticket.power_wordline)
         print("Bit Line Power:", ticket.power_bitline)
 
+
+def test_sequential_bit_input_inference_and_power():
+    torch.set_default_dtype(torch.float64)
+
+    crossbar_params = {'r_wl': 20, 'r_bl': 20, 'r_in': 10, 'r_out': 10, 'V_SOURCE_MODE': '|_|'}
+    memristor_model = DynamicMemristorStuck
+    memristor_params = {'frequency': 1e8, 'temperature': 273 + 40}
+    # ideal_w = torch.tensor([[50, 100],[75, 220],[30, 80]], dtype=torch.float64)*1e-6
+    ideal_w = torch.ones([48, 16])*65e-6
+
+    crossbar = LineResistanceCrossbar(memristor_model, memristor_params, ideal_w, crossbar_params)
+    # randomize weights
+    n_reset = 40
+    t_p_reset = 0.5e-3
+    v_p_bl = 1.5 * torch.cat([torch.linspace(1, 1.2, 16), 1.2 * torch.ones(16, ),
+                              torch.linspace(1.2, 1, 16)], dim=0)
+    for j in tqdm(range(n_reset)):
+        crossbar.lineres_memristive_programming(torch.zeros(16, ), v_p_bl, t_p_reset)
+
+    decoder = CurrentDecoder()
+    v_wl_applied = 0.3*(torch.randint(low=0, high=2, size=[16,]))+0.1
+    print("input", v_wl_applied)
+    v_bl_applied = torch.zeros(48)
+    t = decoder.calibrate_t(crossbar, 100)
+    print("threshold", t)
+    x = crossbar.lineres_memristive_vmm(v_wl_applied, v_bl_applied)
+    print("raw output", x)
+    print("naive binarization", decoder.apply(x))
+    print("fitted binarization", decoder.apply(x, t))
+
+
 def main():
     test_power()
 
