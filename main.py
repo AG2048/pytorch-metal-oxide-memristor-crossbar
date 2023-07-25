@@ -321,7 +321,7 @@ class CurrentDecoder(Component):
             t = torch.mean(x) * torch.ones(x.shape)
         return torch.ge(x, t).type(torch.float64)
     
-    def calibrate_max_current(self, crossbar: LineResistanceCrossbar, n_reset: int = 64, itr: int = 100) -> torch.Tensor:
+    def calibrate_max_current(self, crossbar: LineResistanceCrossbar, n_reset: int = 64, itr: int = 1) -> torch.Tensor:
         """
         Find the maximum possible current by the crossbar (minimum would be 0)
         Used for ADC decoder calibration
@@ -416,7 +416,7 @@ def test_power():
         print("Word Line Power:", ticket.power_wordline)
         print("Bit Line Power:", ticket.power_bitline)
 
-def build_binary_matrix_crossbar(binary_weights: torch.Tensor, n_reset: int = 64, t_p_reset = 0.5e-3, set_voltage_difference = 0.4) -> LineResistanceCrossbar:
+def build_binary_matrix_crossbar(binary_weights: torch.Tensor, n_reset: int = 32, t_p_reset = 0.5e-3, set_voltage_difference = 0.4) -> LineResistanceCrossbar:
     """
     Given the input of a binary matrix, build a crossbar with the same shape and conductance
     :param binary_weights: binary matrix (m, n) where m is the number of rows and n is the number of columns. rows are wordlines (input) and columns are bitlines (output)
@@ -450,60 +450,27 @@ def build_binary_matrix_crossbar(binary_weights: torch.Tensor, n_reset: int = 64
 
 def test_sequential_bit_input_inference_and_power():
     torch.set_default_dtype(torch.float64)
-
+    torch.set_default_dtype(torch.float64)
     crossbar_params = {'r_wl': 20, 'r_bl': 20, 'r_in': 10, 'r_out': 10, 'V_SOURCE_MODE': '|_|'}
     memristor_model = DynamicMemristorStuck
     memristor_params = {'frequency': 1e8, 'temperature': 273 + 40}
-    # ideal_w = torch.tensor([[50, 100],[75, 220],[30, 80]], dtype=torch.float64)*1e-6
-    ideal_w = torch.ones([8, 3])*65e-6  # shape is [number_of_cols, number_of_rows]
-    """
-    Normalize input. So all input should be normalized in the range for the memristor model
-    e.g. for the static/dynamic memristor:
-    3.16e-6 to 316e-6 S for conductance
-    -0.4 to 0.4 V for inference
-
-    Note when programming, + voltage SET the memristor (to LRS) and - voltage RESET the memristor (to HRS)
-    """
+    m, n = 3, 8
+    ideal_w = torch.ones([n, m])*65e-6  # shape is [number_of_cols, number_of_rows]
     crossbar = LineResistanceCrossbar(memristor_model, memristor_params, ideal_w, crossbar_params)
 
-    # find the maximum current
     decoder = CurrentDecoder()
-    # max_current = decoder.calibrate_max_current(crossbar, n_reset=100)
-    max_current = torch.tensor([0.0015] * 8)
-    print("max current", max_current)
-    m, n = crossbar.m, crossbar.n
-    t_p_reset = 1e-3#0.5e-3
-    n_reset = 64
+    max_current = decoder.calibrate_max_current(crossbar, n_reset=64, itr=100)
 
-    # Set all weights to LRS
-    v_p_bl = torch.ones(n, )
-    for j in tqdm(range(n_reset)):
-        crossbar.lineres_memristive_programming(torch.zeros(m, ), v_p_bl, t_p_reset, cap=False, log_power=True)
-    # set weights
-    binary_matrix = torch.tensor([
-        [0, 0, 0, 0, 0, 0, 0, 1],
-        [0, 0, 0, 0, 0, 0, 0, 1],
-        [0, 0, 0, 0, 0, 0, 0, 1]
-    ])
-    t_p_reset = 0.5e-3
-    v_wl_applied = torch.zeros(3)
-    v_bl_applied = torch.zeros(8)
-    for _ in tqdm(range(n_reset)):
-        for i in range(3):
-            for j in range(8):
-                bit = binary_matrix[i, j]
-                v_p_wl = v_wl_applied
-                v_p_bl = v_bl_applied
-                if bit == 1:
-                    v_p_bl[j] = -1
-                else:
-                    v_p_bl[j] = 1
-                crossbar.lineres_memristive_programming(v_p_wl, v_p_bl, t_p_reset, cap=False, log_power=True)
+    crossbar = build_binary_matrix_crossbar(torch.tensor([
+        [0, 0, 0, 0, 0, 1, 0, 1],
+        [0, 0, 0, 0, 0, 0, 1, 1],
+        [0, 0, 0, 0, 0, 0, 1, 1]
+    ]))
 
     input_vector = torch.tensor([
-        [0, 0, 0, 0, 0, 0, 0, 1],
-        [0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 1]
+        [0, 0, 0, 0, 0, 0, 1, 1],
+        [0, 0, 0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 1, 1, 1]
     ])
     final_result = 0
     for bit in range(8):
